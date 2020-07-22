@@ -7,6 +7,7 @@
 #include <Wire.h>
 
 #include <ros.h>
+#include <std_msgs/Int32.h>
 #include <sensor_msgs/Imu.h>
 #include <sensor_msgs/Temperature.h>
 
@@ -14,6 +15,8 @@
 #include <SensorTypes.h>
 #include <Icm20948MPUFifoControl.h>
 #include <Icm20948DataBaseControl.h>
+
+#include <ESP32Encoder.h>
 
 #define SERIAL_PORT Serial
 #define WIRE_PORT Wire  // Your desired Wire port.      Used when "USE_SPI" is not defined
@@ -35,9 +38,19 @@ const uint16_t serverPort = 11411;
 
 ros::NodeHandle  nh;
 sensor_msgs::Imu imu_msg;
+std_msgs::Int32 l_enc_msg;
+std_msgs::Int32 r_enc_msg;
 ros::Publisher imu_pub("imu/data",&imu_msg);
+ros::Publisher left_wheel ("lwheel", &l_enc_msg);
+ros::Publisher right_wheel ("lwheel", &r_enc_msg);
 
 char eamessage[1024];
+
+ESP32Encoder Left_encoder;
+ESP32Encoder Right_encoder;
+
+unsigned long encoder2lastToggled;
+bool encoder2Paused = false;
 
 static const uint8_t dmp3_image[] = 
 {
@@ -361,9 +374,25 @@ void setup()
   Serial.print("IP = ");
   Serial.println(nh.getHardware()->getLocalIP());
 
+  //ESP32Encoder::useInternalWeakPullResistors=DOWN;
+  // Enable the weak pull up resistors
+  ESP32Encoder::useInternalWeakPullResistors=UP;
 
+  // Attache pins for use as encoder pins
+  Left_encoder.attachHalfQuad(19, 18);
+  // Attache pins for use as encoder pins
+  Right_encoder.attachHalfQuad(17, 16);
 
+  Left_encoder.clearCount();
+  Right_encoder.clearCount();
+  Serial.println("Encoder Start = "+String((int32_t)Left_encoder.getCount()));
+//  set the lastToggle
+  encoder2lastToggled = millis();
+  
+  
   nh.advertise(imu_pub);
+  nh.advertise(left_wheel);
+  nh.advertise(right_wheel);
 }
 
 static uint8_t icm20948_get_grv_accuracy(void)
@@ -418,6 +447,9 @@ void build_sensor_event_data(void *context, enum inv_icm20948_sensor sensortype,
     imu_msg.orientation.w = event.data.quaternion.quat[3];
     imu_msg.header.seq++;
     imu_msg.header.frame_id = "imu_link";
+//    imu_msg.orientation_covariance = [1e6, 0, 0, 0, 1e6, 0, 0, 0, 1e-6];
+   // imu_msg.angular_velocity_covariance = [1e6, 0, 0, 0, 1e6, 0, 0, 0, 1e-6];
+  //  imu_msg.linear_acceleration_covariance = {-1,0,0,0,0,0,0,0,0};
     imu_pub.publish(&imu_msg);   
     break;
     return;
@@ -427,7 +459,16 @@ void build_sensor_event_data(void *context, enum inv_icm20948_sensor sensortype,
 void loop()
 {
   if (nh.connected()) {
+    //fetch & publish imu data
     int rv = inv_icm20948_poll_sensor(&icm_device, (void *)0, build_sensor_event_data);
+
+    //fetch & publish encoder data
+    l_enc_msg.data = Left_encoder.getCount();
+    r_enc_msg.data = Right_encoder.getCount();
+    //Serial.println("Encoder count = "+String((int32_t)Left_encoder.getCount())+" "+String((int32_t)Right_encoder.getCount()));
+    
+    left_wheel.publish(&l_enc_msg);
+    right_wheel.publish(&r_enc_msg);
   } else {     
     Serial.println("Not Connected");
   }
