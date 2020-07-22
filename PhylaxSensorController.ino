@@ -378,18 +378,15 @@ void setup()
   // Enable the weak pull up resistors
   ESP32Encoder::useInternalWeakPullResistors=UP;
 
-  // Attache pins for use as encoder pins
+  // Attach pins for use as encoder pins
   Left_encoder.attachHalfQuad(19, 18);
-  // Attache pins for use as encoder pins
   Right_encoder.attachHalfQuad(17, 16);
 
+  //Clear encoder count
   Left_encoder.clearCount();
   Right_encoder.clearCount();
-  Serial.println("Encoder Start = "+String((int32_t)Left_encoder.getCount()));
-//  set the lastToggle
-  encoder2lastToggled = millis();
-  
-  
+
+  //Advertise publishers
   nh.advertise(imu_pub);
   nh.advertise(left_wheel);
   nh.advertise(right_wheel);
