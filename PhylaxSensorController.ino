@@ -30,8 +30,8 @@
 
 uint8_t I2C_Address = 0x69;
 
-const char* ssid     = "Get-c77fb4";
-const char* password = "283742616";
+const char* ssid     = "";
+const char* password = "";
 IPAddress server(192,168,0,15);
 // Set the rosserial socket server port
 const uint16_t serverPort = 11411;
@@ -42,12 +42,12 @@ std_msgs::Int32 l_enc_msg;
 std_msgs::Int32 r_enc_msg;
 ros::Publisher imu_pub("imu/data",&imu_msg);
 ros::Publisher left_wheel ("lwheel", &l_enc_msg);
-ros::Publisher right_wheel ("lwheel", &r_enc_msg);
+ros::Publisher right_wheel ("rwheel", &r_enc_msg);
 
 char eamessage[1024];
 
-ESP32Encoder Left_encoder;
-ESP32Encoder Right_encoder;
+ESP32Encoder left_encoder;
+ESP32Encoder right_encoder;
 
 unsigned long encoder2lastToggled;
 bool encoder2Paused = false;
@@ -379,12 +379,12 @@ void setup()
   ESP32Encoder::useInternalWeakPullResistors=UP;
 
   // Attach pins for use as encoder pins
-  Left_encoder.attachHalfQuad(19, 18);
-  Right_encoder.attachHalfQuad(17, 16);
+  left_encoder.attachHalfQuad(19, 18);
+  right_encoder.attachHalfQuad(17, 16);
 
   //Clear encoder count
-  Left_encoder.clearCount();
-  Right_encoder.clearCount();
+  left_encoder.clearCount();
+  right_encoder.clearCount();
 
   //Advertise publishers
   nh.advertise(imu_pub);
@@ -444,9 +444,6 @@ void build_sensor_event_data(void *context, enum inv_icm20948_sensor sensortype,
     imu_msg.orientation.w = event.data.quaternion.quat[3];
     imu_msg.header.seq++;
     imu_msg.header.frame_id = "imu_link";
-//    imu_msg.orientation_covariance = [1e6, 0, 0, 0, 1e6, 0, 0, 0, 1e-6];
-   // imu_msg.angular_velocity_covariance = [1e6, 0, 0, 0, 1e6, 0, 0, 0, 1e-6];
-  //  imu_msg.linear_acceleration_covariance = {-1,0,0,0,0,0,0,0,0};
     imu_pub.publish(&imu_msg);   
     break;
     return;
@@ -460,8 +457,8 @@ void loop()
     int rv = inv_icm20948_poll_sensor(&icm_device, (void *)0, build_sensor_event_data);
 
     //fetch & publish encoder data
-    l_enc_msg.data = Left_encoder.getCount();
-    r_enc_msg.data = Right_encoder.getCount();
+    l_enc_msg.data = left_encoder.getCount();
+    r_enc_msg.data = right_encoder.getCount();
     //Serial.println("Encoder count = "+String((int32_t)Left_encoder.getCount())+" "+String((int32_t)Right_encoder.getCount()));
     
     left_wheel.publish(&l_enc_msg);
