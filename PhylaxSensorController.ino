@@ -7,9 +7,12 @@
 #include <Wire.h>
 
 #include <ros.h>
+#include <ros/time.h>
+#include <tf/transform_broadcaster.h>
 #include <std_msgs/Int32.h>
 #include <sensor_msgs/Imu.h>
 #include <sensor_msgs/Temperature.h>
+#include <nav_msgs/Odometry.h>
 
 #include <Icm20948.h>
 #include <SensorTypes.h>
@@ -17,6 +20,8 @@
 #include <Icm20948DataBaseControl.h>
 
 #include <ESP32Encoder.h>
+#include "encoder.h"
+#include "odometer.h"
 
 #define SERIAL_PORT Serial
 #define WIRE_PORT Wire  // Your desired Wire port.      Used when "USE_SPI" is not defined
@@ -32,25 +37,19 @@ uint8_t I2C_Address = 0x69;
 
 const char* ssid     = "";
 const char* password = "";
-IPAddress server(192,168,0,15);
+IPAddress server(192,168,2,2);
 // Set the rosserial socket server port
 const uint16_t serverPort = 11411;
 
 ros::NodeHandle  nh;
 sensor_msgs::Imu imu_msg;
-std_msgs::Int32 l_enc_msg;
-std_msgs::Int32 r_enc_msg;
 ros::Publisher imu_pub("imu/data",&imu_msg);
-ros::Publisher left_wheel ("lwheel", &l_enc_msg);
-ros::Publisher right_wheel ("rwheel", &r_enc_msg);
 
 char eamessage[1024];
 
-ESP32Encoder left_encoder;
-ESP32Encoder right_encoder;
-
-unsigned long encoder2lastToggled;
-bool encoder2Paused = false;
+PololuEncoder encoder(34, 48, 0.03);
+Odometer myOdom(&encoder);
+unsigned long current_time, prev_time, time_diff =  micros();
 
 static const uint8_t dmp3_image[] = 
 {
@@ -231,8 +230,8 @@ int icm20948_sensor_setup(void)
   {
     Serial.println("compass detected");
   }
+  
   icm20948_apply_mounting_matrix();
-
   icm20948_set_fsr();
 
   /* re-initialize base state structure */
@@ -328,6 +327,7 @@ void setup()
   
   Wire.begin();
   Wire.setClock(400000);
+  
 
   selectMPU(0);
     
@@ -365,7 +365,10 @@ void setup()
   rc = inv_icm20948_enable_sensor(&icm_device, idd_sensortype_conversion(INV_SENSOR_TYPE_ACCELEROMETER), 1);
   rc = inv_icm20948_enable_sensor(&icm_device, idd_sensortype_conversion(INV_SENSOR_TYPE_GAME_ROTATION_VECTOR), 1);
   rc = inv_icm20948_enable_sensor(&icm_device, idd_sensortype_conversion(INV_SENSOR_TYPE_RAW_MAGNETOMETER), 1);
-    
+
+  //Initialize the motor encoders
+  
+
   // Set the connection to rosserial socket server
   nh.getHardware()->setConnection(server, serverPort);
   nh.initNode();
@@ -374,22 +377,11 @@ void setup()
   Serial.print("IP = ");
   Serial.println(nh.getHardware()->getLocalIP());
 
-  //ESP32Encoder::useInternalWeakPullResistors=DOWN;
-  // Enable the weak pull up resistors
-  ESP32Encoder::useInternalWeakPullResistors=UP;
-
-  // Attach pins for use as encoder pins
-  left_encoder.attachHalfQuad(19, 18);
-  right_encoder.attachHalfQuad(17, 16);
-
-  //Clear encoder count
-  left_encoder.clearCount();
-  right_encoder.clearCount();
-
   //Advertise publishers
   nh.advertise(imu_pub);
-  nh.advertise(left_wheel);
-  nh.advertise(right_wheel);
+
+  //Initialize odometry and advertise topic
+  myOdom.init(nh, 0.25);
 }
 
 static uint8_t icm20948_get_grv_accuracy(void)
@@ -453,19 +445,22 @@ void build_sensor_event_data(void *context, enum inv_icm20948_sensor sensortype,
 void loop()
 {
   if (nh.connected()) {
+    unsigned long current_time = micros();
+    time_diff = current_time - prev_time;
+    ros::Time time_stamp = nh.now();
+    
     //fetch & publish imu data
     int rv = inv_icm20948_poll_sensor(&icm_device, (void *)0, build_sensor_event_data);
-
-    //fetch & publish encoder data
-    l_enc_msg.data = left_encoder.getCount();
-    r_enc_msg.data = right_encoder.getCount();
-    //Serial.println("Encoder count = "+String((int32_t)Left_encoder.getCount())+" "+String((int32_t)Right_encoder.getCount()));
-    
-    left_wheel.publish(&l_enc_msg);
-    right_wheel.publish(&r_enc_msg);
+    myOdom.updateEncoder();
+    myOdom.evaluateRobotPose(time_diff);
+    myOdom.publish_odom(time_stamp);
+    myOdom.broadcastTf(time_stamp);
+    prev_time = current_time;
   } else {     
     Serial.println("Not Connected");
   }
-    nh.spinOnce();
-    delay(1);
+
+  
+  nh.spinOnce();
+  delay(1);
 }
